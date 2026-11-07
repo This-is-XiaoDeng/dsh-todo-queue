@@ -41,7 +41,13 @@
 
 ## 安装 / Install
 
-从 GitHub 安装：
+从 npm 安装（推荐，版本经过发布校验）：
+
+```sh
+dsh plugin --profile web add dsh-todo-queue
+```
+
+也可以直接从 GitHub 装（跟 `main` 最新提交走）：
 
 ```sh
 dsh plugin --profile web add github:This-is-XiaoDeng/dsh-todo-queue
