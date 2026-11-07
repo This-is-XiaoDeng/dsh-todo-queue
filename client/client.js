@@ -805,10 +805,11 @@ body[data-ds-dark-theme] .dstq-float .dstq-textarea{background:#0f1114;color:#ec
       // 110px column makes the panel look broken. Close it once on mount when
       // the viewport is phone-sized; the user can still open it again.
       React.useEffect(() => {
-        if (typeof window === 'undefined' || window.innerWidth >= 900) return
+        if (typeof window === 'undefined' || window.innerWidth > 640) return
         const timer = setTimeout(() => {
           const toggle = [...document.querySelectorAll('button')].find((button) => {
             const label = button.getAttribute('aria-label') || ''
+            if (/right|右/i.test(label)) return false
             return /slide|drawer|sidebar|侧栏/i.test(label) && /collapse|close|收起|关闭/i.test(label)
           })
           if (toggle !== undefined) toggle.click()
@@ -850,9 +851,8 @@ body[data-ds-dark-theme] .dstq-float .dstq-textarea{background:#0f1114;color:#ec
           if (typeof path === 'string' && path !== '') set.add(path)
         }
         if (current && typeof current.cwd === 'string' && current.cwd !== '') set.add(current.cwd)
-        if (form && form.workspace) set.add(form.workspace)
         return [...set].sort((left, right) => left.localeCompare(right))
-      }, [snapshot, current, form])
+      }, [snapshot, current])
 
       const activeWorkspace = React.useMemo(() => {
         if (workspaceTab && workspacePaths.indexOf(workspaceTab) >= 0) return workspaceTab
