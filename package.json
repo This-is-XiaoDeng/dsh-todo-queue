@@ -1,6 +1,6 @@
 {
   "name": "dsh-todo-queue",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "DeepSeek Harness 的串行 TODO 队列板：全局队列与每个工作区队列各自最多运行一个会话，队列空闲时自动派发；控制面板是独立主页面（移动端/PC 自适应），待验收会话内带快捷浮窗。",
   "private": false,
   "type": "module",

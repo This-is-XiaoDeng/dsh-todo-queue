@@ -74,6 +74,14 @@ window.__ModuleLoader__.load({
       return pad(date.getHours()) + ':' + pad(date.getMinutes())
     }
 
+    /** `name  —  /full/path`, so a picker row stays readable for long paths. */
+    const workspaceOptionLabel = (path) => {
+      const text = String(path)
+      const parts = text.split(/[\\/]/).filter(Boolean)
+      const name = parts.length > 0 ? parts[parts.length - 1] : text
+      return name === text ? text : name + '  —  ' + text
+    }
+
     function useActivePanel(usePanelInfo) {
       // `activePanelId` is `null` when the Conversation is showing; a panel id
       // means some global page (Plugins, TODO, …) is covering it.
@@ -229,6 +237,7 @@ body[data-ds-dark-theme] .dstq-page{
 .dstq-meta{display:flex;align-items:center;gap:7px;flex-wrap:wrap;color:var(--q-faint);font-size:11px}
 .dstq-meta .sep{width:2px;height:2px;border-radius:50%;background:var(--q-faint)}
 .dstq-meta .err{color:var(--q-red)}
+.dstq-meta .hold{color:var(--q-amber)}
 .dstq-actions{display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-top:1px}
 .dstq-btn{appearance:none;border:1px solid transparent;background:transparent;color:var(--q-dim);
   font:inherit;font-size:11.5px;font-weight:500;line-height:1;padding:6px 8px;border-radius:7px;cursor:pointer;
@@ -542,6 +551,19 @@ body[data-ds-dark-theme] .dstq-float .dstq-textarea{background:#0f1114;color:#ec
           todo.attempts > 0 && todo.status !== 'accepted' ? h('span', null, '第 ' + todo.attempts + ' 轮') : null,
           todo.error ? h('span', { className: 'sep' }) : null,
           todo.error ? h('span', { className: 'err' }, todo.error) : null,
+          todo.hold
+            ? h('span', { className: 'sep' })
+            : null,
+          todo.hold
+            ? h(
+                'span',
+                {
+                  className: 'hold',
+                  title: '正在运行：' + (todo.hold.sessions || []).join('、'),
+                },
+                '等待 ' + todo.hold.count + ' 个其他会话空闲',
+              )
+            : null,
         ),
         buttons.length > 0 ? h('div', { className: 'dstq-actions' }, buttons) : null,
         todo.status === 'review' && suggesting
@@ -600,6 +622,9 @@ body[data-ds-dark-theme] .dstq-float .dstq-textarea{background:#0f1114;color:#ec
       const accepted = todos.filter((todo) => todo.status === 'accepted')
       const total = todos.length
       const busyCount = running.length
+      // A queue can be idle but unable to start: another session is mid-turn in
+      // the same directory. Say so instead of looking stuck.
+      const holding = todos.some((todo) => todo.hold !== null && todo.hold !== undefined)
 
       const card = (todo) =>
         h(TodoCard, {
@@ -637,7 +662,7 @@ body[data-ds-dark-theme] .dstq-float .dstq-textarea{background:#0f1114;color:#ec
           h(
             'div',
             { className: 'dstq-lane-meta' },
-            h('span', null, busyCount > 0 ? '运行中' : '队列空闲'),
+            h('span', null, busyCount > 0 ? '运行中' : holding ? '等待其他会话' : '队列空闲'),
             h('span', null, '·'),
             h('span', null, total + ' 条'),
           ),
@@ -689,6 +714,19 @@ body[data-ds-dark-theme] .dstq-float .dstq-textarea{background:#0f1114;color:#ec
     function TodoForm(props) {
       const { form, setForm, onSubmit, busy, workspaces, current } = props
       const update = (patch) => setForm({ ...form, ...patch, error: '' })
+      // Known directories first (current session, then DSH's workspace list),
+      // and whatever the form already holds so an edit never loses its value.
+      const options = []
+      const seen = new Set()
+      const offer = (path) => {
+        if (typeof path !== 'string' || path === '' || seen.has(path)) return
+        seen.add(path)
+        options.push(path)
+      }
+      if (current && typeof current.cwd === 'string') offer(current.cwd)
+      for (const path of workspaces || []) offer(path)
+      offer(form.workspace)
+      const custom = form.customWorkspace === true
       return h(
         'div',
         { className: 'dstq-modal-mask', onMouseDown: (event) => { if (event.target === event.currentTarget) setForm(null) } },
@@ -760,20 +798,35 @@ body[data-ds-dark-theme] .dstq-float .dstq-textarea{background:#0f1114;color:#ec
             'div',
             { className: 'dstq-field' },
             h('label', { htmlFor: 'dstq-workspace' }, '运行目录（新会话的 cwd）'),
-            h('input', {
-              id: 'dstq-workspace',
-              className: 'dstq-input',
-              value: form.workspace,
-              list: 'dstq-workspaces',
-              placeholder: current && current.cwd ? current.cwd : '/absolute/path',
-              onChange: (event) => update({ workspace: event.target.value }),
-            }),
             h(
-              'datalist',
-              { id: 'dstq-workspaces' },
-              (workspaces || []).map((path) => h('option', { key: path, value: path })),
+              'select',
+              {
+                id: 'dstq-workspace',
+                className: 'dstq-select',
+                value: custom ? '__custom__' : form.workspace,
+                onChange: (event) => {
+                  const value = event.target.value
+                  if (value === '__custom__') update({ customWorkspace: true })
+                  else update({ customWorkspace: false, workspace: value })
+                },
+              },
+              options.map((path) => h('option', { key: path, value: path }, workspaceOptionLabel(path))),
+              h('option', { key: '__custom__', value: '__custom__' }, '其他目录（手动输入）'),
             ),
-            h('div', { className: 'dstq-footnote' }, '必须是已存在的目录。建议直接用当前会话的工作目录。'),
+            custom
+              ? h('input', {
+                  className: 'dstq-input',
+                  style: { marginTop: 8 },
+                  value: form.workspace,
+                  placeholder: '/absolute/path',
+                  onChange: (event) => update({ workspace: event.target.value }),
+                })
+              : null,
+            h(
+              'div',
+              { className: 'dstq-footnote' },
+              '下拉里是当前会话目录和 DSH 已知的工作区；要换新目录就选「其他目录」手动填。必须是已存在的目录。',
+            ),
           ),
           h(
             'div',
@@ -854,6 +907,16 @@ body[data-ds-dark-theme] .dstq-float .dstq-textarea{background:#0f1114;color:#ec
         return [...set].sort((left, right) => left.localeCompare(right))
       }, [snapshot, current])
 
+      // Lane tabs stay tied to queues that actually exist; the picker offers
+      // every directory DSH knows, so a new todo does not mean typing a path.
+      const workspaceChoices = React.useMemo(() => {
+        const set = new Set(workspacePaths)
+        for (const path of (snapshot && Array.isArray(snapshot.workspaceOptions) ? snapshot.workspaceOptions : [])) {
+          if (typeof path === 'string' && path !== '') set.add(path)
+        }
+        return [...set].sort((left, right) => left.localeCompare(right))
+      }, [snapshot, workspacePaths])
+
       const activeWorkspace = React.useMemo(() => {
         if (workspaceTab && workspacePaths.indexOf(workspaceTab) >= 0) return workspaceTab
         if (current && current.cwd && workspacePaths.indexOf(current.cwd) >= 0) return current.cwd
@@ -866,12 +929,14 @@ body[data-ds-dark-theme] .dstq-float .dstq-textarea{background:#0f1114;color:#ec
       )
 
       const openCreate = () => {
+        const initial = activeWorkspace || (current && current.cwd) || ''
         setForm({
           mode: 'create',
           title: '',
           note: '',
-          queue: activeWorkspace ? 'workspace' : 'global',
-          workspace: activeWorkspace || (current && current.cwd) || '',
+          queue: initial ? 'workspace' : 'global',
+          workspace: initial,
+          customWorkspace: initial === '',
           error: '',
         })
       }
@@ -883,6 +948,7 @@ body[data-ds-dark-theme] .dstq-float .dstq-textarea{background:#0f1114;color:#ec
           note: todo.note || '',
           queue: todo.queue,
           workspace: todo.workspace,
+          customWorkspace: false,
           error: '',
         })
       }
@@ -1059,7 +1125,7 @@ body[data-ds-dark-theme] .dstq-float .dstq-textarea{background:#0f1114;color:#ec
                 setForm,
                 onSubmit: submitForm,
                 busy: busy === 'form',
-                workspaces: workspacePaths,
+                workspaces: workspaceChoices,
                 current,
               })
             : null,

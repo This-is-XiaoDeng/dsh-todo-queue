@@ -29,6 +29,7 @@ const registered = {
 
 const workspaceA = mkdtempSync(join(tmpdir(), 'dstq-ws-a-'))
 const workspaceB = mkdtempSync(join(tmpdir(), 'dstq-ws-b-'))
+const workspaceC = mkdtempSync(join(tmpdir(), 'dstq-ws-c-'))
 
 // ------------------------------------------------------------------ stubs
 
@@ -78,6 +79,7 @@ const presetsStub = {
 const attached = []
 const workspaces = new Map()
 const workspaceStub = {
+  list: () => [...workspaces.values()],
   async resolveByPath(path) {
     return workspaces.get(path)
   },
@@ -202,6 +204,14 @@ async function getSnapshot(sessionId) {
 
 function listener(event) {
   return registered.listeners.filter((entry) => entry.event === event)
+}
+
+async function fireIdle(agent) {
+  agent.status = 'idle'
+  for (const entry of listener('agent/status')) {
+    await entry.listener({ agent, status: 'idle', previous: 'running' })
+  }
+  await new Promise((resolve) => setTimeout(resolve, 5))
 }
 
 async function fireTurnEnd(agent) {
@@ -385,6 +395,48 @@ gate.listener({ name: 'todo_queue', arguments: { action: 'list' } }, () => {
 })
 assert.equal(listAllowed, true)
 
+// ------------------------------------- a foreign session occupies the dir
+
+// The queue must serialize against the *directory*, not only against its own
+// rows: a session this plugin never dispatched (the user's own chat, another
+// plugin) that is mid-turn in the same directory means the tree is busy.
+const foreign = makeAgent({ sessionId: 'session-foreign-user-chat', meta: { cwd: workspaceC } })
+foreign.status = 'running'
+const createdC = await postJson({
+  action: 'create',
+  title: '工作区 C 的一条',
+  queue: 'workspace',
+  workspace: workspaceC,
+})
+assert.equal(createdC.ok, true)
+
+await pump()
+const heldRows = () => plugin.__board().todos.filter((todo) => todo.workspace === workspaceC)
+const heldRow = heldRows().find((todo) => todo.id === createdC.todo.id)
+assert.equal(heldRow.status, 'pending', 'a running foreign session keeps its directory busy')
+assert.equal(agentsById.get('session-foreign-user-chat').sent.length, 0, 'the foreign session is not steered')
+
+const heldView = (await getSnapshot('')).todos.find((todo) => todo.id === createdC.todo.id)
+assert.equal(heldView.hold?.count, 1, 'the snapshot says why the row is waiting')
+assert.deepEqual(heldView.hold.sessions, ['session-foreign-user-chat'])
+assert.ok(heldView.hold.since > 0)
+
+// The picker is fed by DSH's durable workspace registry, not only by rows.
+const catalogSnapshot = await getSnapshot('')
+assert.ok(catalogSnapshot.workspaceOptions.includes(workspaceC), 'the picker lists registry dirs')
+assert.equal(
+  catalogSnapshot.workspaces.includes(workspaceC),
+  true,
+  'a row in C makes it a lane tab too',
+)
+
+await fireIdle(foreign)
+await pump()
+const released = heldRows().find((todo) => todo.id === createdC.todo.id)
+assert.equal(released.status, 'running', 'the row starts once the foreign session goes idle')
+assert.equal(released.hold ?? null, null, 'the hold clears when the row is dispatched')
+assert.equal(released.sessionId === 'session-foreign-user-chat', false, 'it gets its own session')
+
 // --------------------------------------------------------------- teardown
 
 for (const effect of registered.effects) {
@@ -393,6 +445,7 @@ for (const effect of registered.effects) {
 rmSync(home, { recursive: true, force: true })
 rmSync(workspaceA, { recursive: true, force: true })
 rmSync(workspaceB, { recursive: true, force: true })
+rmSync(workspaceC, { recursive: true, force: true })
 
 // ------------------------------------------------------ browser-half checks
 
@@ -404,5 +457,8 @@ assert.ok(clientSource.includes("shell.overlay"), 'client adds the review overla
 assert.ok(clientSource.includes('@media (max-width:640px)'), 'page has a mobile breakpoint')
 assert.ok(clientSource.includes('@media (max-width:900px)'), 'page has a tablet breakpoint')
 assert.ok(clientSource.includes('useSession'), 'overlay binds the current session')
+assert.ok(clientSource.includes("className: 'dstq-select'"), 'workspace field is a dropdown, not free text')
+assert.ok(clientSource.includes('其他目录（手动输入）'), 'the dropdown keeps a manual escape hatch')
+assert.ok(clientSource.includes('个其他会话空闲'), 'a held row explains what it waits for')
 
 console.log('smoke OK')
