@@ -1,0 +1,75 @@
+{
+  "name": "dsh-todo-queue",
+  "version": "0.1.0",
+  "description": "DeepSeek Harness 的串行 TODO 队列板：全局队列与每个工作区队列各自最多运行一个会话，队列空闲时自动派发；控制面板是独立主页面（移动端/PC 自适应），待验收会话内带快捷浮窗。",
+  "private": false,
+  "type": "module",
+  "license": "MIT",
+  "author": "sueqet",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/This-is-XiaoDeng/dsh-todo-queue.git"
+  },
+  "homepage": "https://github.com/This-is-XiaoDeng/dsh-todo-queue#readme",
+  "bugs": {
+    "url": "https://github.com/This-is-XiaoDeng/dsh-todo-queue/issues"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "files": [
+    "lib",
+    "client",
+    "tools",
+    "assets",
+    "cordis.patch.yml",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "deepseek",
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "cordis",
+    "todo",
+    "todo-list",
+    "task-board",
+    "queue",
+    "dispatch",
+    "待办",
+    "队列",
+    "自动派发",
+    "验收"
+  ],
+  "scripts": {
+    "check": "node --check lib/index.js && node --check client/client.js",
+    "test": "node tools/smoke.mjs"
+  },
+  "dsh": {
+    "category": "extension",
+    "displayName": "TODO 队列板",
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-workspace"
+      ],
+      "platform": "web"
+    }
+  },
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./client/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh": ">=0.2.1-rc.5"
+  }
+}
